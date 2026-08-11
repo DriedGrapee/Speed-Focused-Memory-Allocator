@@ -24,13 +24,6 @@
  * Will start with immediate coalescence then add differed coalescence later
  */
 
-
-/* If I wanted this to work on 32bit machines I would have to change the default alignment
-static bool is32bit = ...;
-typedef (is32bit ? uint8_t : uint16_t) Align;
-*/ 
-
-
 typedef struct free_list free_list;
 struct free_list {
     size_t header;  // size of the entire block including header and footer (i.e. adding size to a pointer to the block will be the pointer to the next block) 
@@ -88,7 +81,7 @@ static void* grow_heap(size_t size) {
 static free_list* create_block_at_end_of_heap(size_t size) {
     free_list* heap_ptr = grow_heap(size);
     if (heap_ptr) {
-        setup_free_block(heap_ptr, size, true, false); //previous_allocated is false because *prev is nullptr for the first entry in the list
+        setup_free_block(heap_ptr, size, true, false); // this is wrong! Previously allocated is unkown until an epilogue for the free list is implemented. 
     } else {
         
     }
@@ -98,12 +91,17 @@ static free_list* create_block_at_end_of_heap(size_t size) {
 static void remove_from_free_list(free_list* free_block) {
     
     assert(free_block);
-    
-    (free_block->body.links.prev)->body.links.next = free_block->body.links.next;
-    (free_block->body.links.next)->body.links.prev = free_block->body.links.prev;
-    
-    set_allocated(free_block, true);
+    if (free_block->body.links.prev) {
+        (free_block->body.links.prev)->body.links.next = free_block->body.links.next;
+    }
+    if (free_block->body.links.next) {
+        (free_block->body.links.next)->body.links.prev = free_block->body.links.prev;
+    }
 
+    if (free_block == program_free_list) {
+        program_free_list = free_block->body.links.next;
+    }
+    
     return;
 }
 
@@ -112,13 +110,14 @@ static void split(free_list* current_free_block, size_t size_of_first_block) {
 
     assert(current_free_block);
     
-    free_list* new_free_block = current_free_block + size_of_first_block;
+    free_list* new_free_block = (free_list *)((unsigned char *)current_free_block + size_of_first_block);
     *new_free_block = (free_list) {};
     setup_free_block(new_free_block, calculate_size(current_free_block) - size_of_first_block, false, true);
-
+    setup_free_block(current_free_block, size_of_first_block, true, true);
     new_free_block->body.links.prev = nullptr;
     new_free_block->body.links.next = program_free_list;
-    program_free_list->body.links.prev = new_free_block;
+    if (program_free_list) // program_free_list is null whenever the free list is empty
+        program_free_list->body.links.prev = new_free_block;
 
     program_free_list = new_free_block;
     
@@ -129,13 +128,13 @@ static void split(free_list* current_free_block, size_t size_of_first_block) {
 static free_list* find_block(free_list* current_free_block, size_t size) {
 
     assert(current_free_block);
-    assert(size >= 0);
     
     if (calculate_size(current_free_block) >= size) {
-        if (calculate_size(current_free_block) > (size + 2*ALIGNMENT)) {
+        if (calculate_size(current_free_block) > (size + sizeof(free_list)*2 + sizeof(size_t))) { //arbitrarily choosing data > 2 headers + a footer
             split(current_free_block, size);
         }
         remove_from_free_list(current_free_block);
+        set_allocated(current_free_block, true);
         
         return current_free_block;
     } else if ((current_free_block->body.links.next)) {
@@ -155,12 +154,17 @@ void* mm_malloc(size_t size) {
             exit(1);
         }
         setup_free_block(chosen_block, total_size, true, false);
-        
         free_list_is_initialized = true;
-    } else {
+    } else if (program_free_list) {
         // search for location
         chosen_block = find_block(program_free_list, total_size);
+    } else {
+        chosen_block = create_block_at_end_of_heap(total_size); // nothing to search, so go straight to the end of the heap
     }
+
+    if (!chosen_block) // grow_heap failed
+        return nullptr;
+
     return (void *)(chosen_block->body.mem_block);
 }
 
@@ -176,9 +180,56 @@ void* mm_realloc(void* ptr, size_t size) {
 
   return nullptr;
 }
+*/
+
+static inline free_list* find_prev_in_memory(free_list* free_block) {
+    return (free_list *)((unsigned char *)free_block - *(size_t *)((unsigned char *)free_block - sizeof(size_t)));
+}
+
+static inline free_list* find_next_in_memory(free_list* free_block) {
+    return (free_list *)((unsigned char *)free_block + calculate_size(free_block));
+}
+// merges free_block with whichever of its two neighbours in memory are also free, and marks the result free.
+static free_list* coalesce(free_list* free_block) {
+    size_t merged_size = calculate_size(free_block);
+
+    free_list* next_in_memory = find_next_in_memory(free_block);
+    if (!is_allocated(next_in_memory)) {
+        remove_from_free_list(next_in_memory);
+        merged_size += calculate_size(next_in_memory);
+    }
+
+    if (!previous_is_allocated(free_block)) {
+        free_list* prev_in_memory = find_prev_in_memory(free_block);
+        remove_from_free_list(prev_in_memory);
+        merged_size += calculate_size(prev_in_memory);
+        free_block = prev_in_memory;
+    }
+
+    setup_free_block(free_block, merged_size, false, true);
+    return free_block;
+}
 
 void mm_free(void* ptr) { // implement boundary tags for coalescing which should be done on every free (and therefore doesn't need to be recursive)
-  //TODO: Implement free
-  return;
+    if (!ptr) {
+        return;
+    }
+
+    free_list* current_free_block = (free_list *)((unsigned char *)ptr - offsetof(free_list, body));
+    
+    current_free_block = coalesce(current_free_block); // coalesce returns the merged block, whose base moves backwards if the previous block was absorbed
+
+    current_free_block->body.links.next = program_free_list;
+    current_free_block->body.links.prev = nullptr;
+    if (program_free_list) // program_free_list is null after the initial heap setup, and again whenever the last free block is taken
+        program_free_list->body.links.prev = current_free_block;
+    program_free_list = current_free_block;
+
+    set_previous_allocated(find_next_in_memory(current_free_block), false);
+    
+    return;
 }
-*/
+
+
+// TODO: Fix all incorrect pointer arithmetic. The above example is correct. Make sure if adding a number of bytes the pointer you are adding to is of type unsigned char.
+// TODO: Add prologue and epilogue blocks which are at the beginning and end of the heap memory

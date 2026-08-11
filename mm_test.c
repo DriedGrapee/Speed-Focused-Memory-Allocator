@@ -26,7 +26,7 @@ static void load_alloc_functions() {
   }
 
   mm_malloc = try_dlsym(handle, "mm_malloc");
-  mm_realloc = try_dlsym(handle, "mm_realloc");
+  //mm_realloc = try_dlsym(handle, "mm_realloc");
   mm_free = try_dlsym(handle, "mm_free");
 }
 
