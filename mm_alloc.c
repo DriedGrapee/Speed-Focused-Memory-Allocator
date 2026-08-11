@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>
+#include <assert.h>
 
 #define ALIGNMENT 8
 /*
@@ -66,6 +67,7 @@ static void setup_free_block(free_list* free_block, size_t total_size, bool allo
     return;
 }
 
+/* Will be used when freeing
 
 static inline bool is_allocated(free_list* free_block) {
     return (free_block->header & (size_t)1);
@@ -74,6 +76,8 @@ static inline bool is_allocated(free_list* free_block) {
 static inline bool previous_is_allocated(free_list* free_block) {
     return (free_block->header & (size_t)(1 << 1));
 }
+
+*/
 
 static free_list* program_free_list;
 static bool free_list_is_initialized = false;
@@ -90,26 +94,53 @@ static void* grow_heap(size_t size) {
 
 free_list* create_and_insert_free_block(size_t size) {
     free_list* heap_ptr = grow_heap(size);
-    setup_free_block(heap_ptr, size, true, false); //previous_allocated is false because *prev is nullptr for the first entry in the list
+    if (heap_ptr) {
+        setup_free_block(heap_ptr, size, true, false); //previous_allocated is false because *prev is nullptr for the first entry in the list
+    } else {
+        
+    }
     
     return heap_ptr;
 }
 
-static void check_and_split(free_list* current_free_block, size_t size) {// checks if the chosen free block is large enough (after word alignment has room for more than another 2 headers) then splits it
+static void split(free_list* current_free_block, size_t size_of_first_block) {// checks if the chosen free block is large enough (after word alignment has room for more than another 2 headers) then splits it
+
+    assert(current_free_block);
+    
+    free_list* new_free_block = current_free_block + size_of_first_block;
+    *new_free_block = (free_list) {};
+    setup_free_block(new_free_block, calculate_size(current_free_block) - size_of_first_block, false, true);
+
+    new_free_block->body.links.next = current_free_block->body.links.next;
+    new_free_block->body.links.prev = current_free_block;
+    current_free_block->body.links.next = new_free_block;
+    
     return;
 }
 
 static void remove_from_free_list(free_list* free_block) {
+    
+    assert(free_block);
+    
     (free_block->body.links.prev)->body.links.next = free_block->body.links.next;
     (free_block->body.links.next)->body.links.prev = free_block->body.links.prev;
     
     set_allocated(free_block, true);
+
+    return;
 }
 
 static free_list* find_block(free_list* current_free_block, size_t size) {
+
+    assert(current_free_block);
+    assert(size >= 0);
+    
     if (calculate_size(current_free_block) >= size) {
-        check_and_split(current_free_block, size);
+        if (calculate_size(current_free_block) > (size + 2*ALIGNMENT)) {
+            split(current_free_block, size);
+        }
         remove_from_free_list(current_free_block);
+        
         return current_free_block;
     } else if ((current_free_block->body.links.next)) {
         return find_block(current_free_block->body.links.next, size);
@@ -132,22 +163,26 @@ void* mm_malloc(size_t size) {
         free_list_is_initialized = true;
     } else {
         // search for location
-        free_list* chosen_block = find_block(program_free_list, total_size);
+        chosen_block = find_block(program_free_list, total_size);
     }
     return (void *)(chosen_block->body.mem_block);
 }
 
+/*
 void* mm_calloc(size_t size) {
     // call malloc
     // just memset to all 0s (vectorization is already done within memset)
+    return nullptr;
 }
 
 void* mm_realloc(void* ptr, size_t size) {
   //TODO: Implement realloc
 
-  return NULL;
+  return nullptr;
 }
 
 void mm_free(void* ptr) { // implement boundary tags for coalescing which should be done on every free (and therefore doesn't need to be recursive)
   //TODO: Implement free
+  return;
 }
+*/
