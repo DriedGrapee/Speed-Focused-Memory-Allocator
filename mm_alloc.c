@@ -41,18 +41,23 @@ struct free_list {
     } body;
 };
 
-static size_t calculate_size(free_list* free_block) {
+static inline size_t calculate_size(free_list* free_block) {
     return (free_block->header & ~3);
 }
-
-static inline void set_footer(free_list* free_block) {
-    *((size_t *)((unsigned char*)free_block + (calculate_size(free_block)-sizeof(size_t)))) = calculate_size(free_block); // replaces the last sizeof(size_t) bytes with the size of the free_list
+static inline bool is_allocated(free_list* free_block) {
+    return (free_block->header & (size_t)1);
+}
+static inline bool previous_is_allocated(free_list* free_block) {
+    return (free_block->header & (size_t)(1 << 1));
 }
 static inline void set_previous_allocated(free_list* free_block, bool previous_allocated) {
     free_block->header = ((free_block->header & ~(1 << 1)) | (previous_allocated << 1));
 }
 static inline void set_allocated(free_list* free_block, bool allocated) {
     free_block->header = ((free_block->header & ~1) | allocated);
+}
+static inline void set_footer(free_list* free_block) {
+    *((size_t *)((unsigned char*)free_block + (calculate_size(free_block)-sizeof(size_t)))) = calculate_size(free_block); // replaces the last sizeof(size_t) bytes with the size of the free_list
 }
 
 static void setup_free_block(free_list* free_block, size_t total_size, bool allocated, bool previous_allocated) {
@@ -67,18 +72,6 @@ static void setup_free_block(free_list* free_block, size_t total_size, bool allo
     return;
 }
 
-/* Will be used when freeing
-
-static inline bool is_allocated(free_list* free_block) {
-    return (free_block->header & (size_t)1);
-}
-
-static inline bool previous_is_allocated(free_list* free_block) {
-    return (free_block->header & (size_t)(1 << 1));
-}
-
-*/
-
 static free_list* program_free_list;
 static bool free_list_is_initialized = false;
 
@@ -92,7 +85,7 @@ static void* grow_heap(size_t size) {
     return heap_ptr;
 }
 
-free_list* create_and_insert_free_block(size_t size) {
+static free_list* create_block_at_end_of_heap(size_t size) {
     free_list* heap_ptr = grow_heap(size);
     if (heap_ptr) {
         setup_free_block(heap_ptr, size, true, false); //previous_allocated is false because *prev is nullptr for the first entry in the list
@@ -102,22 +95,6 @@ free_list* create_and_insert_free_block(size_t size) {
     
     return heap_ptr;
 }
-
-static void split(free_list* current_free_block, size_t size_of_first_block) {// checks if the chosen free block is large enough (after word alignment has room for more than another 2 headers) then splits it
-
-    assert(current_free_block);
-    
-    free_list* new_free_block = current_free_block + size_of_first_block;
-    *new_free_block = (free_list) {};
-    setup_free_block(new_free_block, calculate_size(current_free_block) - size_of_first_block, false, true);
-
-    new_free_block->body.links.next = current_free_block->body.links.next;
-    new_free_block->body.links.prev = current_free_block;
-    current_free_block->body.links.next = new_free_block;
-    
-    return;
-}
-
 static void remove_from_free_list(free_list* free_block) {
     
     assert(free_block);
@@ -130,6 +107,25 @@ static void remove_from_free_list(free_list* free_block) {
     return;
 }
 
+// splits chosen block into a first block (first in terms of memory address) of size = size_of_first_block and a second block whose size is the rest of the free block being split
+static void split(free_list* current_free_block, size_t size_of_first_block) {
+
+    assert(current_free_block);
+    
+    free_list* new_free_block = current_free_block + size_of_first_block;
+    *new_free_block = (free_list) {};
+    setup_free_block(new_free_block, calculate_size(current_free_block) - size_of_first_block, false, true);
+
+    new_free_block->body.links.prev = nullptr;
+    new_free_block->body.links.next = program_free_list;
+    program_free_list->body.links.prev = new_free_block;
+
+    program_free_list = new_free_block;
+    
+    return;
+}
+
+// finds a block that is large enough to house the requested memory as well as the header by looking through the free_list in order, and if it comes to the end it increases the heap by size and allocates a block within that new memory
 static free_list* find_block(free_list* current_free_block, size_t size) {
 
     assert(current_free_block);
@@ -145,7 +141,7 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
     } else if ((current_free_block->body.links.next)) {
         return find_block(current_free_block->body.links.next, size);
     } else {
-        return create_and_insert_free_block(size); // this needs to use setup_free_block
+        return create_block_at_end_of_heap(size); // this needs to use setup_free_block
     }
 }
 
