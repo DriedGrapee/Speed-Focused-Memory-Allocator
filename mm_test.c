@@ -5,7 +5,7 @@
 
 /* Function pointers to hw3 functions */
 void* (*mm_malloc)(size_t);
-void* (*mm_realloc)(void*, size_t);
+//void* (*mm_realloc)(void*, size_t);
 void (*mm_free)(void*);
 
 static void* try_dlsym(void* handle, const char* symbol) {
@@ -36,6 +36,8 @@ int main() {
   int* data = mm_malloc(sizeof(int));
   assert(data != NULL);
   data[0] = 0x162;
+
+  
   mm_free(data);
   puts("malloc test successful!");
 }

@@ -1,4 +1,6 @@
 mm_test
+mm_debug
+.gdb_history
 
 *.o
 *.so

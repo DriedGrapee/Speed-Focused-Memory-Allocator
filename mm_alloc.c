@@ -78,6 +78,10 @@ static void* grow_heap(size_t size) {
     return heap_ptr;
 }
 
+static inline void add_epilogue(free_list* free_block) {
+    setup_free_block(free_block, 0, true, false); // sets up epilogue
+}
+
 static free_list* create_block_at_end_of_heap(size_t size) {
     free_list* heap_ptr = grow_heap(size);
     if (heap_ptr) {
@@ -85,8 +89,10 @@ static free_list* create_block_at_end_of_heap(size_t size) {
     } else {
         
     }
+
+    add_epilogue(heap_ptr + size - ALIGNMENT);
     
-    return heap_ptr;
+    return (free_list*)((unsigned char*)heap_ptr - ALIGNMENT); //now that there is an epilogue, you want to return the address of where the old epilogue was, so it is 1 header's size before the ptr returned by grow_heap
 }
 static void remove_from_free_list(free_list* free_block) {
     
@@ -130,7 +136,7 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
     assert(current_free_block);
     
     if (calculate_size(current_free_block) >= size) {
-        if (calculate_size(current_free_block) > (size + sizeof(free_list)*2 + sizeof(size_t))) { //arbitrarily choosing data > 2 headers + a footer
+        if (calculate_size(current_free_block) > (size + sizeof(free_list)*2 + sizeof(size_t))) { //arbitrarily choosing excess size > 2 headers + a footer
             split(current_free_block, size);
         }
         remove_from_free_list(current_free_block);
@@ -144,22 +150,32 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
     }
 }
 
+// puts the prologue and epiloge blocks 
+static void initialize_free_list(void) {
+    free_list* prologue = grow_heap(3*ALIGNMENT);
+    setup_free_block(prologue, 8, true, false); // sets up prologue
+    add_epilogue((free_list *)((unsigned char*)prologue + 2*ALIGNMENT));
+
+    program_free_list = (free_list *)((unsigned char *)prologue + 2*ALIGNMENT);
+    free_list_is_initialized = true;
+    
+    return;
+}
+
 void* mm_malloc(size_t size) {
     size_t total_size = ALIGNMENT + sizeof(free_list) + ((size + 31) & ~(size_t)31);
     free_list* chosen_block; 
     
     if (!free_list_is_initialized) {
-        if (!(chosen_block = grow_heap(total_size) + ALIGNMENT)) {
-            perror("Error Upon Initializing Free List");
-            exit(1);
-        }
-        setup_free_block(chosen_block, total_size, true, false);
-        free_list_is_initialized = true;
-    } else if (program_free_list) {
-        // search for location
+        initialize_free_list();
+        create_block_at_end_of_heap(total_size);
+    }
+    if (program_free_list) {
         chosen_block = find_block(program_free_list, total_size);
     } else {
-        chosen_block = create_block_at_end_of_heap(total_size); // nothing to search, so go straight to the end of the heap
+        printf("Free list == nullptr. Retrying freelist initialization...");
+        free_list_is_initialized = false;
+        return mm_malloc(size);
     }
 
     if (!chosen_block) // grow_heap failed
@@ -191,6 +207,9 @@ static inline free_list* find_next_in_memory(free_list* free_block) {
 }
 // merges free_block with whichever of its two neighbours in memory are also free, and marks the result free.
 static free_list* coalesce(free_list* free_block) {
+
+    //assert(!is_allocated(free_block));
+    
     size_t merged_size = calculate_size(free_block);
 
     free_list* next_in_memory = find_next_in_memory(free_block);
@@ -216,16 +235,20 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
     }
 
     free_list* current_free_block = (free_list *)((unsigned char *)ptr - offsetof(free_list, body));
+   
+    //assert(is_allocated(current_free_block));
     
-    current_free_block = coalesce(current_free_block); // coalesce returns the merged block, whose base moves backwards if the previous block was absorbed
-
     current_free_block->body.links.next = program_free_list;
     current_free_block->body.links.prev = nullptr;
     if (program_free_list) // program_free_list is null after the initial heap setup, and again whenever the last free block is taken
         program_free_list->body.links.prev = current_free_block;
     program_free_list = current_free_block;
 
+    set_allocated(current_free_block, true);
+    set_footer(current_free_block);
     set_previous_allocated(find_next_in_memory(current_free_block), false);
+    
+    current_free_block = coalesce(current_free_block); // coalesce returns the merged block, whose base moves backwards if the previous block was absorbed
     
     return;
 }
