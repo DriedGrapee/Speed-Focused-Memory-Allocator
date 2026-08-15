@@ -14,16 +14,37 @@
 #include <errno.h>
 #include <stdckdint.h>
 
+/*
+ * Valgrind annotations. mm_malloc/mm_free are not malloc/free, so valgrind cannot
+ * see them on its own -- massif reports nothing and memcheck treats the whole sbrk
+ * region as uniformly valid. These client requests hand it the block boundaries.
+ * Built only when MM_VALGRIND is defined (see the massif target), so the -O2 build
+ * carries none of this and the project still compiles without valgrind headers.
+ */
+#ifdef MM_VALGRIND
+#  include <valgrind/valgrind.h>
+#  include <valgrind/memcheck.h>
+   // report the REQUESTED size, not the block size, so memcheck flags a write that
+   // runs past what the caller actually asked for rather than only past the block
+#  define MM_ALLOC_HOOK(ptr, size) VALGRIND_MALLOCLIKE_BLOCK((ptr), (size), 0, 0)
+#  define MM_FREE_HOOK(ptr)        VALGRIND_FREELIKE_BLOCK((ptr), 0)
+   // FREELIKE marks a block unaddressable, but this allocator stores its free-list
+   // links and footer inside that same space. Without this the allocator's own
+   // bookkeeping reads as an invalid access.
+   // DEFINED, not UNDEFINED: the headers, footers and links in this span are real
+   // initialised data the allocator wrote, so marking them undefined would make
+   // every later header read look like a use of an uninitialised value.
+#  define MM_INTERNAL_RW(ptr, size) VALGRIND_MAKE_MEM_DEFINED((ptr), (size))
+#else
+#  define MM_ALLOC_HOOK(ptr, size)  ((void)0)
+#  define MM_FREE_HOOK(ptr)         ((void)0)
+#  define MM_INTERNAL_RW(ptr, size) ((void)0)
+#endif
+
 #define ALIGNMENT 8
 /*
- * Basic Program Structure: 
- * Initialize a default (empty) free list on malloc call 
- * move brk ptr to accomodate new memory allocation (investigate whether its redundant to use sbrk and mmap)
- * use mmap to get space in the heap
- * update free list to tell user that space has been allocated
- * return pointer to mem_block
- * 
  * Will start with immediate coalescence then add differed coalescence later
+ * Will add segmented free list
  */
 
 static char stdout_buf[BUFSIZ];
@@ -337,6 +358,8 @@ void* mm_malloc(size_t size) {
     if (!chosen_block) // grow_heap failed
         return nullptr;
 
+    MM_ALLOC_HOOK(chosen_block->body.mem_block, size);
+
     return (void *)(chosen_block->body.mem_block);
 }
 
@@ -366,7 +389,13 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
         return;
     }
 
+    MM_FREE_HOOK(ptr); // before coalescing, while ptr still names the block the caller was given
+
     free_list* current_free_block = (free_list *)((unsigned char *)ptr - offsetof(free_list, body));
+
+    // the block and both neighbours are about to have their headers, footers and
+    // links rewritten by coalescing, so hand the whole span back to the allocator
+    MM_INTERNAL_RW(current_free_block, calculate_size(current_free_block));
     
     printf("Freeing %p\n", current_free_block); // logging
    

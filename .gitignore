@@ -2,6 +2,8 @@ mm_test
 mm_debug
 mm_debug_dbg
 mm_debug_perf
+mm_debug_massif
+massif.out
 .gdb_history
 
 *.o

@@ -20,40 +20,23 @@ int main(void) {
     
     int* data = mm_malloc(3*sizeof(int));
     assert(data != NULL);
-    data[0] = 1;
-    data[1] = 2;
-    data[2] = 3;
 
     float* flute = mm_malloc(sizeof(float));
 
-    *flute = 12.1234;
     
-    printf("Float: %f\n", *flute);
     
     mm_free(flute);
     
-    long* loud = mm_malloc(sizeof(long)); // where does this go? Since there 
+    long* loud = mm_malloc(sizeof(long));
 
-    unsigned long* ul_array = mm_calloc(101, sizeof(unsigned long));
+    unsigned long* ul_array = mm_calloc(599999, sizeof(unsigned long));
 
-    printf("ul_array: ");
-    for (int i = 0; i < 101; ++i) {
-        printf("%lu", ul_array[i]);
-    }
-    printf("\n");
-    
     mm_free(ul_array);
     
     *loud = 1231241234123154;
     
-    printf("data[0] = %d\ndata[1] = %d\ndata[2] = %d\n", data[0], data[1], data[2]);
-
-    
-    printf("Long: %ld\n", *loud);
-  
     mm_free(data);
     mm_free(loud);
-    
     
     puts("malloc test successful!");
 }
