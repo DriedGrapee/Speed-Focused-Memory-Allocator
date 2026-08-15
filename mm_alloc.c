@@ -184,13 +184,13 @@ void* mm_malloc(size_t size) {
     return (void *)(chosen_block->body.mem_block);
 }
 
-/*
+
 void* mm_calloc(size_t size) {
-    // call malloc
-    // just memset to all 0s (vectorization is already done within memset)
-    return nullptr;
+    void* mem_ptr = mm_malloc(size);
+    return memset(mem_ptr, 0, size);
 }
 
+/* 
 void* mm_realloc(void* ptr, size_t size) {
   //TODO: Implement realloc
 
@@ -252,7 +252,3 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
     
     return;
 }
-
-
-// TODO: Fix all incorrect pointer arithmetic. The above example is correct. Make sure if adding a number of bytes the pointer you are adding to is of type unsigned char.
-// TODO: Add prologue and epilogue blocks which are at the beginning and end of the heap memory
