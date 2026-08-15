@@ -35,7 +35,7 @@ struct free_list {
 };
 
 static inline size_t calculate_size(free_list* free_block) {
-    return (free_block->header & ~3);
+    return (free_block->header & ~(size_t)3);
 }
 static inline bool is_allocated(free_list* free_block) {
     return (free_block->header & (size_t)1);
@@ -85,12 +85,12 @@ static inline void add_epilogue(free_list* free_block) {
 static free_list* create_block_at_end_of_heap(size_t size) {
     free_list* heap_ptr = grow_heap(size);
     if (heap_ptr) {
-        setup_free_block(heap_ptr, size, true, false); // this is wrong! Previously allocated is unkown until an epilogue for the free list is implemented. 
+        setup_free_block((free_list *)((unsigned char*)heap_ptr  - ALIGNMENT), size, true, false); // this is wrong! Previously allocated is unkown until an epilogue for the free list is implemented. 
     } else {
         
     }
 
-    add_epilogue(heap_ptr + size - ALIGNMENT);
+    add_epilogue((free_list *)((unsigned char*)heap_ptr + size - ALIGNMENT));
     
     return (free_list*)((unsigned char*)heap_ptr - ALIGNMENT); //now that there is an epilogue, you want to return the address of where the old epilogue was, so it is 1 header's size before the ptr returned by grow_heap
 }
@@ -152,8 +152,8 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
 
 // puts the prologue and epiloge blocks 
 static void initialize_free_list(void) {
-    free_list* prologue = grow_heap(3*ALIGNMENT);
-    setup_free_block(prologue, 8, true, false); // sets up prologue
+    free_list* prologue = grow_heap(2*sizeof(free_list)); // need space for 1 ALIGNMENT + 1 Header + 1 Footer + 16byte padding + 1 Header
+    setup_free_block(prologue, 32, true, false); // sets up prologue
     add_epilogue((free_list *)((unsigned char*)prologue + 2*ALIGNMENT));
 
     program_free_list = (free_list *)((unsigned char *)prologue + 2*ALIGNMENT);
@@ -163,7 +163,7 @@ static void initialize_free_list(void) {
 }
 
 void* mm_malloc(size_t size) {
-    size_t total_size = ALIGNMENT + sizeof(free_list) + ((size + 31) & ~(size_t)31);
+    size_t total_size = (ALIGNMENT + sizeof(size_t) + (size > 16 ? size - 16 : 0) + 31) & ~(size_t)31;
     free_list* chosen_block; 
     
     if (!free_list_is_initialized) {

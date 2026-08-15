@@ -17,12 +17,29 @@
 #include <stdio.h>
 
 int main(void) {
-  int* data = mm_malloc(sizeof(int));
-  assert(data != NULL);
-  data[0] = 0x162;
+    int* data = mm_malloc(3*sizeof(int));
+    assert(data != NULL);
+    data[0] = 1;
+    data[1] = 2;
+    data[2] = 3;
 
-  printf("data = %d\n", data[0]);
+    float* flute = mm_malloc(sizeof(float));
+
+    *flute = 12.1234;
+    
+    printf("Float: %f\n", *flute);
+    
+    free(flute);
+    
+    long* loud = mm_malloc(sizeof(long));
+
+    *loud = 1231241234123154;
+    
+    printf("data[0] = %d\ndata[1] = %d\ndata[2] = %d\n", data[0], data[1], data[2]);
+
+    printf("Long: %ld\n", *loud);
   
-  mm_free(data);
-  puts("malloc test successful!");
+    mm_free(data);
+    mm_free(loud);
+    puts("malloc test successful!");
 }
