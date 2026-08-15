@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stddef.h>
 #include <assert.h>
+#include <errno.h>
 
 #define ALIGNMENT 8
 /*
@@ -97,7 +98,7 @@ static free_list* create_block_at_end_of_heap(size_t size) {
     if (heap_ptr) {
         setup_free_block(epilogue, size, true, previous_is_allocated(epilogue));
     } else { 
-        
+       return nullptr; 
     }
 
     add_epilogue((free_list *)((unsigned char*)heap_ptr + size - ALIGNMENT));
@@ -163,8 +164,16 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
 // puts the prologue and epiloge blocks 
 static void initialize_prologue_and_epilogue(void) {
     setvbuf(stdout, stdout_buf, _IOFBF, sizeof stdout_buf); // necessary when testing as printf uses glibc malloc
-    free_list* prologue = (free_list *)((unsigned char *)grow_heap(2*sizeof(free_list)) + ALIGNMENT); // need space for 1 ALIGNMENT + 1 Header + 1 Footer + 16byte padding + 1 Header
 
+    free_list* prologue;
+
+    if (!(prologue = (free_list *)((unsigned char *)grow_heap(2*sizeof(free_list))))) {
+       errno = ENOMEM;
+       perror("Out Of Memory Therefore Cannot Organize Heap"); 
+    } else {
+        prologue = (free_list *)((unsigned char*)prologue + ALIGNMENT); // need space for 1 ALIGNMENT + 1 Header + 1 Footer + 16byte padding + 1 Header
+    }
+    
     // TESTING
     prologue_ptr = prologue;
     
@@ -305,7 +314,7 @@ static void print_heap_data(void) {
 }
 
 void* mm_malloc(size_t size) {
-    size_t total_size = (ALIGNMENT + sizeof(size_t) + (size > 16 ? size - 16 : 0) + 31) & ~(size_t)31;
+    size_t total_size = (offsetof(free_list, body) + size + 31) & ~(size_t)31;
     free_list* chosen_block; 
 
     printf("Allocating %zu bytes of data into %zu bytes of memory ", size, total_size);
@@ -330,7 +339,10 @@ void* mm_malloc(size_t size) {
 }
 
 void* mm_calloc(size_t size) {
-    void* mem_ptr = mm_malloc(size);
+    void* mem_ptr;
+    if (!(mem_ptr = mm_malloc(size))) {
+        return nullptr;
+    }
     return memset(mem_ptr, 0, size);
 }
 
