@@ -1,5 +1,7 @@
 mm_test
 mm_debug
+mm_debug_dbg
+mm_debug_perf
 .gdb_history
 
 *.o

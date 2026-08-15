@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <errno.h>
+#include <stdckdint.h>
 
 #define ALIGNMENT 8
 /*
@@ -47,13 +48,19 @@ static inline bool previous_is_allocated(free_list* free_block) {
     return (free_block->header & (size_t)(1 << 1));
 }
 static inline void set_previous_allocated(free_list* free_block, bool previous_allocated) {
-    free_block->header = ((free_block->header & ~(1 << 1)) | (previous_allocated << 1));
+    free_block->header = ((free_block->header & ~(size_t)(1 << 1)) | (previous_allocated << 1));
 }
 static inline void set_allocated(free_list* free_block, bool allocated) {
     free_block->header = ((free_block->header & ~1) | allocated);
 }
 static inline void set_footer(free_list* free_block) {
     *((size_t *)((unsigned char*)free_block + (calculate_size(free_block)-sizeof(size_t)))) = calculate_size(free_block); // replaces the last sizeof(size_t) bytes with the size of the free_list
+}
+static inline free_list* find_prev_in_memory(free_list* free_block) {
+    return (free_list *)((unsigned char *)free_block - *(size_t *)((unsigned char *)free_block - sizeof(size_t)));
+}
+static inline free_list* find_next_in_memory(free_list* free_block) {
+    return (free_list *)((unsigned char *)free_block + calculate_size(free_block));
 }
 
 static void setup_free_block(free_list* free_block, size_t total_size, bool allocated, bool previous_allocated) {
@@ -150,8 +157,10 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
         if (calculate_size(current_free_block) > (size + sizeof(free_list)*2 + sizeof(size_t))) { //arbitrarily choosing excess size > 2 headers + a footer
             split(current_free_block, size);
         }
+        
         remove_from_free_list(current_free_block);
         set_allocated(current_free_block, true);
+        set_previous_allocated(find_next_in_memory(current_free_block), true);
         
         return current_free_block;
     } else if ((current_free_block->body.links.next)) {
@@ -184,13 +193,6 @@ static void initialize_prologue_and_epilogue(void) {
     return;
 }
 
-static inline free_list* find_prev_in_memory(free_list* free_block) {
-    return (free_list *)((unsigned char *)free_block - *(size_t *)((unsigned char *)free_block - sizeof(size_t)));
-}
-
-static inline free_list* find_next_in_memory(free_list* free_block) {
-    return (free_list *)((unsigned char *)free_block + calculate_size(free_block));
-}
 // merges free_block with whichever of its two neighbours in memory are also free, and marks the result free.
 static free_list* coalesce(free_list* free_block) { // coalesce will always be called on a block that has just been turned from allocated to free so it will not be linked into the free list
     
@@ -338,12 +340,17 @@ void* mm_malloc(size_t size) {
     return (void *)(chosen_block->body.mem_block);
 }
 
-void* mm_calloc(size_t size) {
+void* mm_calloc(size_t n, size_t size) {
     void* mem_ptr;
-    if (!(mem_ptr = mm_malloc(size))) {
+    size_t mul;
+    if (ckd_mul(&mul, n, size)) {
+        errno = ERANGE;
+        perror("Integer Overflow");
+        return nullptr;
+    } else if (!(mem_ptr = mm_malloc(mul))) {
         return nullptr;
     }
-    return memset(mem_ptr, 0, size);
+    return memset(mem_ptr, 0, mul);
 }
 
 /* 
