@@ -29,7 +29,7 @@ int main(void) {
     
     printf("Float: %f\n", *flute);
     
-    free(flute);
+    mm_free(flute);
     
     long* loud = mm_malloc(sizeof(long));
 
