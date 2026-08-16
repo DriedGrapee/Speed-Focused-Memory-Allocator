@@ -5,7 +5,7 @@ WARN_FLAGS = -Wall -Wextra -Werror
 
 CFLAGS       = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC
 DEBUG_CFLAGS = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -Og -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
-PERF_CFLAGS  = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O2
+PERF_CFLAGS  = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O2 -DNDEBUG
 # no sanitizers here: ASan and valgrind both rewrite memory management and cannot
 # run together. MM_VALGRIND switches on the MALLOCLIKE/FREELIKE client requests.
 MASSIF_CFLAGS = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O0 -fno-omit-frame-pointer -DMM_VALGRIND
