@@ -3,17 +3,25 @@ CC = clang
 STD_FLAGS  = -std=c23 -D_POSIX_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=700
 WARN_FLAGS = -Wall -Wextra -Werror
 
-CFLAGS       = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC
+# MM_QUIET compiles out print_heap_data/print_block_data/print_free_list and every
+# call to them (see mm_alloc.c). Left off DEBUG_CFLAGS on purpose: that build is
+# the one meant for chasing a bug with the full per-call heap dump in hand.
+CFLAGS       = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -DMM_QUIET
 DEBUG_CFLAGS = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -Og -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
-PERF_CFLAGS  = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O2 -DNDEBUG
+PERF_CFLAGS  = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O2 -DNDEBUG -DMM_QUIET
 # no sanitizers here: ASan and valgrind both rewrite memory management and cannot
 # run together. MM_VALGRIND switches on the MALLOCLIKE/FREELIKE client requests.
-MASSIF_CFLAGS = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O0 -fno-omit-frame-pointer -DMM_VALGRIND
+MASSIF_CFLAGS = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O0 -fno-omit-frame-pointer -DMM_VALGRIND -DMM_QUIET
 
 TEST_CFLAGS  = -Wl,-rpath=.
 TEST_LDFLAGS = -ldl
 
-.PHONY: all debug perf gdb pwndbg massif memcheck clean
+MUNIT_DIR = vendor/munit
+# munit is vendored third-party code: build it with its own relaxed flags so our
+# -Wall -Wextra -Werror cannot fail the build on upstream style rather than ours
+MUNIT_CFLAGS = -g3 -std=c11 -D_POSIX_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=700 -w
+
+.PHONY: all debug perf gdb pwndbg massif memcheck test test-asan clean
 
 all: hw3lib.so mm_test mm_debug
 
@@ -80,6 +88,33 @@ memcheck: mm_debug_massif
 mm_debug_massif: mm_debug.c mm_alloc.c mm_alloc.h
 	$(CC) $(MASSIF_CFLAGS) -o $@ $<
 
+# ---- unit tests ----
+# munit forks before every test, which is what makes these tests independent:
+# the allocator's global state sits on an sbrk heap with no reset hook, so in a
+# single process each test would inherit the previous one's heap. Forking also
+# means a segfaulting test is reported as a failure instead of ending the run.
+test: mm_unit_tests
+	./mm_unit_tests
+
+# mm_unit_tests.c #includes mm_alloc.c, so compile $< alone -- passing $^ would
+# define every allocator symbol twice
+mm_unit_tests: mm_unit_tests.c mm_alloc.c mm_alloc.h $(MUNIT_DIR)/munit.o
+	$(CC) $(CFLAGS) -O0 -fno-omit-frame-pointer -I$(MUNIT_DIR) -o $@ $< $(MUNIT_DIR)/munit.o
+
+# forking is also what makes ASan usable here: a heap poisoned by one test
+# cannot bleed into the next, and each report lands against the test that caused it
+test-asan: mm_unit_tests_asan
+	./mm_unit_tests_asan
+
+mm_unit_tests_asan: mm_unit_tests.c mm_alloc.c mm_alloc.h $(MUNIT_DIR)/munit_asan.o
+	$(CC) $(DEBUG_CFLAGS) -I$(MUNIT_DIR) -o $@ $< $(MUNIT_DIR)/munit_asan.o
+
+$(MUNIT_DIR)/munit.o: $(MUNIT_DIR)/munit.c $(MUNIT_DIR)/munit.h
+	$(CC) $(MUNIT_CFLAGS) -c -o $@ $<
+
+$(MUNIT_DIR)/munit_asan.o: $(MUNIT_DIR)/munit.c $(MUNIT_DIR)/munit.h
+	$(CC) $(MUNIT_CFLAGS) -Og -fsanitize=address,undefined -c -o $@ $<
+
 # ---- gdb session ----
 # mm_debug is already the right shape for this: -O0 and -fno-omit-frame-pointer
 # with no sanitizers, so single-stepping is exact and there is no sanitizer
@@ -100,4 +135,6 @@ clean:
 	rm -rf hw3lib.so mm_alloc.o mm_test mm_debug \
 	       hw3lib_dbg.so mm_alloc_dbg.o mm_debug_dbg \
 	       hw3lib_perf.so mm_alloc_perf.o mm_debug_perf \
-	       mm_debug_massif massif.out
+	       mm_debug_massif massif.out \
+	       mm_unit_tests mm_unit_tests_asan \
+	       $(MUNIT_DIR)/munit.o $(MUNIT_DIR)/munit_asan.o

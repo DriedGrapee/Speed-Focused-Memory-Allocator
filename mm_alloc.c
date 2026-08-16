@@ -239,6 +239,11 @@ static free_list* coalesce(free_list* free_block) { // coalesce will always be c
 }
 
 // FOR TESTING
+// print_block_data/print_free_list/print_heap_data and every call to them are
+// compiled out entirely when MM_QUIET is defined, rather than just skipping the
+// printf calls -- leaving the functions in place with no callers would trip
+// -Wunused-function under -Werror.
+#ifndef MM_QUIET
 static void print_block_data(free_list* free_block) {
     /*
      * Want to know:
@@ -335,13 +340,16 @@ static void print_heap_data(void) {
     printf("\n");
     fflush(stdout); // the caller usually crashes right after this, and buffered output would be lost
 }
+#endif // MM_QUIET
 
 void* mm_malloc(size_t size) {
     size_t total_size = (offsetof(free_list, body) + size + 31) & ~(size_t)31;
     free_list* chosen_block; 
 
+#ifndef MM_QUIET
     printf("Allocating %zu bytes of data into %zu bytes of memory ", size, total_size);
-    
+#endif
+
     if (!program_free_list) {
         if (!heap_boundary_markers_initialized) {
             initialize_prologue_and_epilogue();
@@ -351,9 +359,10 @@ void* mm_malloc(size_t size) {
         chosen_block = find_block(program_free_list, total_size);
     }
 
+#ifndef MM_QUIET
     printf("at %p\n", chosen_block);
-    
     print_heap_data();
+#endif
 
     if (!chosen_block) // grow_heap failed
         return nullptr;
@@ -397,8 +406,10 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
     // links rewritten by coalescing, so hand the whole span back to the allocator
     MM_INTERNAL_RW(current_free_block, calculate_size(current_free_block));
     
+#ifndef MM_QUIET
     printf("Freeing %p\n", current_free_block); // logging
-   
+#endif
+
     assert(is_allocated(current_free_block));
     
     set_allocated(current_free_block, false);
@@ -413,8 +424,10 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
         program_free_list->body.links.prev = current_free_block;
     program_free_list = current_free_block;
 
+#ifndef MM_QUIET
     print_heap_data(); // logging
-    
+#endif
+
     return;
 }
 
