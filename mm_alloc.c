@@ -112,12 +112,36 @@ static void* grow_heap(size_t size) {
 
     return heap_ptr;
 }
+
 // puts an epilogue at the end of the heap. It is initialzed with previous_allocated = true because a new epilogue is added only when a new allocated block is inserted at the end of the heap
 static inline void add_epilogue(free_list* free_block) {
     setup_free_block(free_block, 0, true, true); // sets up epilogue
 
     //TESTING
     epilogue_ptr = free_block;
+}
+
+// puts the prologue and epiloge blocks 
+static void initialize_prologue_and_epilogue(void) {
+    setvbuf(stdout, stdout_buf, _IOFBF, sizeof stdout_buf); // necessary when testing as printf uses glibc malloc
+
+    free_list* prologue;
+
+    if (!(prologue = (free_list *)((unsigned char *)grow_heap(2*sizeof(free_list))))) {
+       errno = ENOMEM;
+       perror("Out Of Memory Therefore Cannot Organize Heap"); 
+    } else {
+        prologue = (free_list *)((unsigned char*)prologue + ALIGNMENT); // need space for 1 ALIGNMENT + 1 Header + 1 Footer + 16byte padding + 1 Header
+    }
+    
+    // TESTING
+    prologue_ptr = prologue;
+    
+    setup_free_block(prologue, 32, true, false); // sets up prologue
+    add_epilogue((free_list *)((unsigned char*)prologue + 4*ALIGNMENT));
+    heap_boundary_markers_initialized = true;
+    
+    return;
 }
 
 static free_list* create_block_at_end_of_heap(size_t size) {
@@ -133,6 +157,7 @@ static free_list* create_block_at_end_of_heap(size_t size) {
     
     return (free_list*)((unsigned char*)heap_ptr - ALIGNMENT); //now that there is an epilogue, you want to return the address of where the old epilogue was, so it is 1 header's size before the ptr returned by grow_heap
 }
+
 static void remove_from_free_list(free_list* free_block) {
     
     assert(free_block);
@@ -189,29 +214,6 @@ static free_list* find_block(free_list* current_free_block, size_t size) {
     } else {
         return create_block_at_end_of_heap(size); // this needs to use setup_free_block
     }
-}
-
-// puts the prologue and epiloge blocks 
-static void initialize_prologue_and_epilogue(void) {
-    setvbuf(stdout, stdout_buf, _IOFBF, sizeof stdout_buf); // necessary when testing as printf uses glibc malloc
-
-    free_list* prologue;
-
-    if (!(prologue = (free_list *)((unsigned char *)grow_heap(2*sizeof(free_list))))) {
-       errno = ENOMEM;
-       perror("Out Of Memory Therefore Cannot Organize Heap"); 
-    } else {
-        prologue = (free_list *)((unsigned char*)prologue + ALIGNMENT); // need space for 1 ALIGNMENT + 1 Header + 1 Footer + 16byte padding + 1 Header
-    }
-    
-    // TESTING
-    prologue_ptr = prologue;
-    
-    setup_free_block(prologue, 32, true, false); // sets up prologue
-    add_epilogue((free_list *)((unsigned char*)prologue + 4*ALIGNMENT));
-    heap_boundary_markers_initialized = true;
-    
-    return;
 }
 
 // merges free_block with whichever of its two neighbours in memory are also free, and marks the result free.
@@ -346,9 +348,9 @@ void* mm_malloc(size_t size) {
     size_t total_size = (offsetof(free_list, body) + size + 31) & ~(size_t)31;
     free_list* chosen_block; 
 
-#ifndef MM_QUIET
-    printf("Allocating %zu bytes of data into %zu bytes of memory ", size, total_size);
-#endif
+    #ifndef MM_QUIET
+        printf("Allocating %zu bytes of data into %zu bytes of memory ", size, total_size);
+    #endif
 
     if (!program_free_list) {
         if (!heap_boundary_markers_initialized) {
@@ -359,10 +361,10 @@ void* mm_malloc(size_t size) {
         chosen_block = find_block(program_free_list, total_size);
     }
 
-#ifndef MM_QUIET
-    printf("at %p\n", chosen_block);
-    print_heap_data();
-#endif
+    #ifndef MM_QUIET
+        printf("at %p\n", chosen_block);
+        print_heap_data();
+    #endif
 
     if (!chosen_block) // grow_heap failed
         return nullptr;
@@ -393,7 +395,7 @@ void* mm_realloc(void* ptr, size_t size) {
 }
 */
 
-void mm_free(void* ptr) { // implement boundary tags for coalescing which should be done on every free (and therefore doesn't need to be recursive)
+void mm_free(void* ptr) { 
     if (!ptr) {
         return;
     }
@@ -406,9 +408,9 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
     // links rewritten by coalescing, so hand the whole span back to the allocator
     MM_INTERNAL_RW(current_free_block, calculate_size(current_free_block));
     
-#ifndef MM_QUIET
-    printf("Freeing %p\n", current_free_block); // logging
-#endif
+    #ifndef MM_QUIET
+        printf("Freeing %p\n", current_free_block); // logging
+    #endif
 
     assert(is_allocated(current_free_block));
     
@@ -424,13 +426,13 @@ void mm_free(void* ptr) { // implement boundary tags for coalescing which should
         program_free_list->body.links.prev = current_free_block;
     program_free_list = current_free_block;
 
-#ifndef MM_QUIET
-    print_heap_data(); // logging
-#endif
+    #ifndef MM_QUIET
+        print_heap_data(); // logging
+    #endif
 
     return;
 }
 
 
-//TODO: Proper visualization of the heap with reference to the free list. Proper testing suite
-//TODO: Once the (likely to exist) bugs are ironed out focus on optimization. Mainly in design instead of implementation (at the moment)
+//TODO: Beef up unit tests 
+//TODO: focus on optimization. Mainly in design instead of implementation (at the moment)
