@@ -10,7 +10,7 @@ PERF_CFLAGS  = -g3 $(WARN_FLAGS) $(STD_FLAGS) -fPIC -O2
 TEST_CFLAGS  = -Wl,-rpath=.
 TEST_LDFLAGS = -ldl
 
-.PHONY: all debug perf gdb clean
+.PHONY: all debug perf gdb pwndbg clean
 
 all: hw3lib.so mm_test mm_debug
 
@@ -68,6 +68,13 @@ mm_debug_perf: mm_debug.c mm_alloc.c mm_alloc.h
 # auto-load a local .gdbinit unless the directory is in auto-load safe-path.
 gdb: mm_debug
 	gdb -x .gdbinit ./mm_debug
+
+# ---- pwndbg session ----
+# -nx skips ~/.gdbinit on purpose: it holds gdb-dashboard, which hooks the same
+# stop event pwndbg does, and running both fights over the display. -x .gdbinit
+# then loads this project's commands (blk/flist/hwalk/bpalloc) on top of pwndbg.
+pwndbg: mm_debug
+	pwndbg -nx -x .gdbinit ./mm_debug
 
 clean:
 	rm -rf hw3lib.so mm_alloc.o mm_test mm_debug \
