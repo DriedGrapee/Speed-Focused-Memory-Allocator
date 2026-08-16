@@ -4,6 +4,8 @@ mm_debug_dbg
 mm_debug_perf
 mm_debug_massif
 massif.out
+mm_unit_tests
+mm_unit_tests_asan
 .gdb_history
 
 *.o
