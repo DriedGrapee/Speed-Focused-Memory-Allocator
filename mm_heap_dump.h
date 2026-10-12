@@ -1,10 +1,4 @@
-/*
- * mm_heap_dump.h
- *
- * Human-readable dumps of the allocator's heap and free list. Linked into the
- * debug binaries only; from gdb, `call print_heap_data()` at any stop.
- */
-
+/* Heap and free-list dumps for debug builds; `call print_heap_data()` from gdb. */
 #pragma once
 
 #include "mm_alloc_internal.h"

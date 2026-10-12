@@ -1,109 +1,78 @@
 /*
- * mm_unit_tests.c
- *
- * munit forks before each test. the allocator keeps global state on an sbrk heap
- * that only grows and has no reset hook, so without forking every test would inherit
- * the previous test's heap. Each test instead gets a pristine copy-on-write snapshot,
- * and a test that segfaults is reported as a failure rather than killing the run.
- *
- * TO ADD A TEST:
- *   1. write a `static MunitResult test_xyz(const MunitParameter params[], void* fixture)`
- *   2. add one row to the tests[] array below, above the NULL terminator
+ * munit forks before each test, giving every test a fresh copy of the heap (the
+ * allocator has no reset) and reporting a segfault as a failure.
+ * To add a test: write a test_* function and add a row to tests[].
  */
-
 #include "mm_alloc.h"
-#include "mm_alloc_internal.h" // block_of, is_allocated, calculate_size
-
+#include "mm_alloc_internal.h"
 #include "munit.h"
 
 #include <stdio.h>
 
-/* -------------------------------------------------------------------- tests */
-
-static MunitResult test_malloc_returns_nonnull(const MunitParameter params[], void* fixture) {
-    (void)params; (void)fixture; // -Wextra -Werror: both are unused in most tests
-
-    void* p = mm_malloc(32);
-    munit_assert_not_null(p);
-    mm_free(p);
-
+static MunitResult test_malloc_returns_nonnull(const MunitParameter p[], void* f) {
+    (void)p; (void)f;
+    void* ptr = mm_malloc(32);
+    munit_assert_not_null(ptr);
+    mm_free(ptr);
     return MUNIT_OK;
 }
 
-// malloc must return memory aligned for any type; on x86-64 max_align_t is 16
-static MunitResult test_malloc_payload_alignment(const MunitParameter params[], void* fixture) {
-    (void)params; (void)fixture;
-
+// max_align_t is 16 bytes on x86-64
+static MunitResult test_malloc_payload_alignment(const MunitParameter p[], void* f) {
+    (void)p; (void)f;
     for (size_t size = 1; size <= 128; size++) {
-        void* p = mm_malloc(size);
-        munit_assert_not_null(p);
-        munit_assert_size((uintptr_t)p % 16, ==, 0);
-        mm_free(p);
+        void* ptr = mm_malloc(size);
+        munit_assert_not_null(ptr);
+        munit_assert_size((uintptr_t)ptr % 16, ==, 0);
+        mm_free(ptr);
     }
-
     return MUNIT_OK;
 }
 
-// the block behind a live pointer should be marked allocated and be big enough
-// to hold both the header and everything the caller asked for
-static MunitResult test_malloc_block_is_allocated(const MunitParameter params[], void* fixture) {
-    (void)params; (void)fixture;
-
-    size_t requested = 40;
-    void* p = mm_malloc(requested);
-    munit_assert_not_null(p);
-
-    free_list* block = block_of(p);
+static MunitResult test_malloc_block_is_allocated(const MunitParameter p[], void* f) {
+    (void)p; (void)f;
+    size_t req = 40;
+    void* ptr = mm_malloc(req);
+    munit_assert_not_null(ptr);
+    free_list* block = block_of(ptr);
     munit_assert_true(is_allocated(block));
-    munit_assert_size(calculate_size(block), >=, requested + offsetof(free_list, body));
-
-    mm_free(p);
+    munit_assert_size(calculate_size(block), >=, req + offsetof(free_list, body));
+    mm_free(ptr);
     return MUNIT_OK;
 }
 
-// a block that has been freed and immediately re-requested at the same size
-// should come back from the free list rather than growing the heap
-static MunitResult test_free_then_malloc_reuses_block(const MunitParameter params[], void* fixture) {
-    (void)params; (void)fixture;
-
+// the freed block should come back from the free list, not from heap growth
+static MunitResult test_free_then_malloc_reuses_block(const MunitParameter p[], void* f) {
+    (void)p; (void)f;
     void* first = mm_malloc(64);
     munit_assert_not_null(first);
     free_list* first_block = block_of(first);
-
     mm_free(first);
 
     void* second = mm_malloc(64);
     munit_assert_not_null(second);
     munit_assert_ptr_equal(block_of(second), first_block);
-
     mm_free(second);
     return MUNIT_OK;
 }
 
-/* ------------------------------------------------------- test registration */
-
 static MunitTest tests[] = {
-    { (char*)"/malloc/returns-nonnull",     test_malloc_returns_nonnull,      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
-    { (char*)"/malloc/payload-alignment",   test_malloc_payload_alignment,    NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
-    { (char*)"/malloc/block-is-allocated",  test_malloc_block_is_allocated,   NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
-    { (char*)"/free/reuses-block",          test_free_then_malloc_reuses_block, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
-
-    { NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL } // terminator, keep last
+    { (char*)"/malloc/returns-nonnull",    test_malloc_returns_nonnull,        NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+    { (char*)"/malloc/payload-alignment",  test_malloc_payload_alignment,      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+    { (char*)"/malloc/block-is-allocated", test_malloc_block_is_allocated,     NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+    { (char*)"/free/reuses-block",         test_free_then_malloc_reuses_block, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+    { NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL } // terminator
 };
 
 static const MunitSuite suite = {
-    (char*)"/mm_alloc",     // prefix for every test name above
-    tests,
-    NULL,                   // no nested suites
-    1,                      // iterations
-    MUNIT_SUITE_OPTION_NONE
+    (char*)"/mm_alloc", tests, NULL, 1, MUNIT_SUITE_OPTION_NONE
 };
 
 static char stdout_buf[BUFSIZ];
 
 int main(int argc, char* argv[]) {
-    // give stdout a static buffer: otherwise the first printf mallocs one through
-    // glibc, which moves the program break underneath the allocator's sbrk heap
-    setvbuf(stdout, stdout_buf, _IOLBF, sizeof stdout_buf); // line buffered so munit still reports each test as it finishes
+    // static so printf never calls glibc malloc and moves the break; line buffered
+    // so each test is reported as it finishes
+    setvbuf(stdout, stdout_buf, _IOLBF, sizeof stdout_buf);
     return munit_suite_main(&suite, NULL, argc, argv);
 }

@@ -1,20 +1,13 @@
-# gdb setup for mm_alloc.
-#
-# Works with both binaries:
-#   gdb ./mm_debug   direct-linked, symbols available immediately
-#   gdb ./mm_test    dlopen'd, symbols bind when hw3lib.so loads (hence pending breakpoints)
-#
-# gdb refuses local .gdbinit files unless the directory is trusted. Either add
-#   add-auto-load-safe-path /home/nicre/documents/programming/CS162_25fall_hws_starter_code/hw-memory/mm_alloc
-# to ~/.config/gdb/gdbinit, or skip the config and run: gdb -x .gdbinit ./mm_debug
+# gdb setup for mm_alloc. gdb skips a local .gdbinit unless the directory is in
+# its auto-load safe-path, hence `gdb -x .gdbinit` (what `make gdb` runs).
+# Pending breakpoints let it work with dlopen'd mm_test too.
 
 set breakpoint pending on
 set print pretty on
 set history save on
 set confirm off
 
-# Decode one block header. Free blocks also print their footer and list links.
-# Usage: blk free_block   /   blk 0x5555555592a0
+# Decode block header, flags, and links/footer if free
 define blk
   set $b = (free_list *)($arg0)
   set $sz = (unsigned long)($b->header & ~3UL)
@@ -25,10 +18,10 @@ define blk
   printf "\n"
 end
 document blk
-Print size, allocated bit, prev-allocated bit of a block; footer and links if free.
+Print block size, flags, and links/footer if free.
 end
 
-# Walk the free list from the head. Bounded, because a corrupted list is often cyclic.
+# Walk program_free_list (bounded at 32 nodes)
 define flist
   printf "program_free_list = %p\n", program_free_list
   set $n = program_free_list
@@ -44,13 +37,11 @@ define flist
   end
 end
 document flist
-Walk program_free_list and print each node. Bounded at 32 nodes.
+Walk program_free_list up to 32 nodes.
 end
 
-# Walk the heap linearly from a block address to the current break.
-# Every block is visited whether allocated or free, so this is what catches
-# blocks missing from the free list, and prev_alloc flags out of sync.
-# Usage: hwalk chosen_block
+# Walk every block from $arg0 to sbrk(0), free or not: catches blocks missing from
+# the free list and stale prev_alloc bits
 define hwalk
   set $b = (free_list *)($arg0)
   set $end = (unsigned char *)sbrk(0)
@@ -69,11 +60,10 @@ define hwalk
   end
 end
 document hwalk
-Walk blocks linearly from ARG0 to sbrk(0). Requires a running process.
+Walk blocks linearly from ARG0 to sbrk(0).
 end
 
-# The allocator entry points. File-qualified because mm_test.c has globals
-# of the same name, which would otherwise make the linespec ambiguous.
+# File-qualified: mm_test.c has globals with the same names
 define bpalloc
   break mm_alloc.c:mm_malloc
   break mm_alloc.c:mm_free
@@ -81,5 +71,5 @@ define bpalloc
   break mm_alloc.c:split
 end
 document bpalloc
-Set breakpoints on mm_malloc, mm_free, coalesce and split.
+Set breakpoints on mm_malloc, mm_free, coalesce, split.
 end
