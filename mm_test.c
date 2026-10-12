@@ -33,8 +33,7 @@ static void load_alloc_functions() {
 static char stdout_buf[BUFSIZ];
 
 int main() {
-  // give stdout a static buffer: otherwise the first printf mallocs one through
-  // glibc, which moves the program break underneath the allocator's sbrk heap
+  // a static stdout buffer, so printf never calls glibc malloc and moves the break
   setvbuf(stdout, stdout_buf, _IOFBF, sizeof stdout_buf);
   load_alloc_functions();
 

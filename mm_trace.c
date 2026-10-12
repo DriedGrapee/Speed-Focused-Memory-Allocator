@@ -1,17 +1,8 @@
 /*
- * mm_trace.c
- *
- * Logs every mm_malloc/mm_calloc/mm_free call and dumps the heap after it.
- * Hooked in at link time rather than compiled into the allocator: linking with
- *
- *   -Wl,--wrap=mm_malloc,--wrap=mm_calloc,--wrap=mm_free
- *
- * sends the harness's calls to the __wrap_ functions below, and __real_ names
- * the allocator's own. Calls made from inside mm_alloc.o (mm_calloc -> mm_malloc)
- * are resolved within that object and never wrapped, which is why mm_calloc has
- * its own wrapper.
+ * Logs each allocator call and dumps the heap after it. Linked with
+ * -Wl,--wrap=mm_malloc,--wrap=mm_calloc,--wrap=mm_free: calls land in __wrap_*,
+ * which reach the allocator through __real_*.
  */
-
 #include "mm_heap_dump.h"
 
 #include <stdio.h>
@@ -27,6 +18,8 @@ void* __wrap_mm_malloc(size_t size) {
     return ptr;
 }
 
+// mm_calloc's own call to mm_malloc stays inside mm_alloc.o, where --wrap does
+// not reach, so calloc needs a wrapper of its own
 void* __wrap_mm_calloc(size_t n, size_t size) {
     void* ptr = __real_mm_calloc(n, size);
     printf("Allocating %zu x %zu zeroed bytes at %p\n", n, size, ptr);
