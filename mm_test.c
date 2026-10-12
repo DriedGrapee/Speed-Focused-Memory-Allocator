@@ -30,7 +30,12 @@ static void load_alloc_functions() {
   mm_free = try_dlsym(handle, "mm_free");
 }
 
+static char stdout_buf[BUFSIZ];
+
 int main() {
+  // give stdout a static buffer: otherwise the first printf mallocs one through
+  // glibc, which moves the program break underneath the allocator's sbrk heap
+  setvbuf(stdout, stdout_buf, _IOFBF, sizeof stdout_buf);
   load_alloc_functions();
 
   int* data = mm_malloc(3*sizeof(int));

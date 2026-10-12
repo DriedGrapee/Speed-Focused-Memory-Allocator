@@ -11,16 +11,12 @@
  *   2. add one row to the tests[] array below, above the NULL terminator
  */
 
-#include "mm_alloc.c" // not mm_alloc.h: the definitions must land in this translation unit
+#include "mm_alloc.h"
+#include "mm_alloc_internal.h" // block_of, is_allocated, calculate_size
 
 #include "munit.h"
 
-/* ------------------------------------------------------------------ helpers */
-
-// recovers the block header from a pointer mm_malloc handed back
-static free_list* block_of(void* payload) {
-    return (free_list*)((unsigned char*)payload - offsetof(free_list, body));
-}
+#include <stdio.h>
 
 /* -------------------------------------------------------------------- tests */
 
@@ -103,6 +99,11 @@ static const MunitSuite suite = {
     MUNIT_SUITE_OPTION_NONE
 };
 
+static char stdout_buf[BUFSIZ];
+
 int main(int argc, char* argv[]) {
+    // give stdout a static buffer: otherwise the first printf mallocs one through
+    // glibc, which moves the program break underneath the allocator's sbrk heap
+    setvbuf(stdout, stdout_buf, _IOLBF, sizeof stdout_buf); // line buffered so munit still reports each test as it finishes
     return munit_suite_main(&suite, NULL, argc, argv);
 }
